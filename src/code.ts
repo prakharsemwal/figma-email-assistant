@@ -452,6 +452,46 @@ function formatEmailType(type: EmailType): string {
   ).join(' ');
 }
 
+// Export frames as PNG for visual analysis
+async function exportFramesAsPNG(): Promise<{ frameId: string; frameName: string; imageData: string }[]> {
+  const exports: { frameId: string; frameName: string; imageData: string }[] = [];
+  const currentPage = figma.currentPage;
+
+  // Only get direct children of the page (top-level frames)
+  for (const node of currentPage.children) {
+    if (node.type !== 'FRAME' && node.type !== 'COMPONENT') continue;
+
+    // Skip small frames
+    if ('width' in node && 'height' in node) {
+      if ((node as FrameNode).width < 200 || (node as FrameNode).height < 200) continue;
+    }
+
+    try {
+      // Export as PNG with reasonable size for AI analysis
+      const bytes = await (node as FrameNode).exportAsync({
+        format: 'PNG',
+        constraint: { type: 'WIDTH', value: 800 } // Resize to max 800px width
+      });
+
+      // Convert to base64
+      const base64 = figma.base64Encode(bytes);
+      const imageData = `data:image/png;base64,${base64}`;
+
+      exports.push({
+        frameId: node.id,
+        frameName: node.name,
+        imageData
+      });
+
+      console.log(`Exported top-level frame: ${node.name}`);
+    } catch (error) {
+      console.error(`Failed to export frame ${node.name}:`, error);
+    }
+  }
+
+  return exports;
+}
+
 // Message handling from UI
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'detect-opportunities') {
@@ -466,6 +506,26 @@ figma.ui.onmessage = async (msg) => {
       opportunities,
       brandColors
     });
+  }
+
+  if (msg.type === 'export-frames-visual') {
+    console.log('Exporting frames for visual analysis...');
+    figma.notify('📸 Capturing frames...');
+
+    try {
+      const exports = await exportFramesAsPNG();
+      console.log(`Exported ${exports.length} frames`);
+
+      figma.ui.postMessage({
+        type: 'frames-exported',
+        frames: exports
+      });
+
+      figma.notify(`✅ Captured ${exports.length} frames`);
+    } catch (error) {
+      console.error('Error exporting frames:', error);
+      figma.notify('❌ Error capturing frames');
+    }
   }
   
   if (msg.type === 'create-email') {

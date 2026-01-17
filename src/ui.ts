@@ -4,6 +4,9 @@ let opportunities: any[] = [];
 let brandColors: any = {};
 let currentOpportunity: any = null;
 let aiAnalysis: Map<string, any> = new Map(); // Store AI analysis by frame ID
+let visualAnalysis: Map<string, any> = new Map(); // Store visual analysis by frame ID
+let exportedFrames: any[] = []; // Store exported frame images
+let flowSummary: any = null; // Store combined flow summary
 
 // Listen for messages from plugin code
 window.onmessage = async (event: MessageEvent) => {
@@ -21,6 +24,13 @@ window.onmessage = async (event: MessageEvent) => {
     brandColors = msg.brandColors;
     renderOpportunities();
   }
+
+  if (msg.type === 'frames-exported') {
+    console.log('Frames exported:', msg.frames.length);
+    exportedFrames = msg.frames;
+    // Continue with visual analysis
+    await processVisualAnalysis();
+  }
 };
 
 // Setup when UI loads
@@ -30,6 +40,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Attach event listeners to buttons
   document.getElementById('refresh-btn')?.addEventListener('click', refreshOpportunities);
   document.getElementById('ai-analyze-btn')?.addEventListener('click', analyzeWithAI);
+  document.getElementById('visual-analyze-btn')?.addEventListener('click', startVisualAnalysis);
   document.getElementById('close-btn')?.addEventListener('click', closeGenerator);
   document.getElementById('regenerate-btn')?.addEventListener('click', regenerateCopy);
   document.getElementById('insert-btn')?.addEventListener('click', insertIntoFigma);
@@ -62,11 +73,18 @@ function renderOpportunities() {
   container.innerHTML = opportunities.map(opp => `
     <div class="opportunity-card" onclick="generateEmail('${opp.id}')">
       <div class="opportunity-header">
-        <div class="opportunity-type">${opp.aiAnalysis?.suggestedEmailName || _formatEmailType(opp.type)}</div>
+        <div class="opportunity-type">${opp.visualAnalysis?.suggestedEmailName || opp.aiAnalysis?.suggestedEmailName || _formatEmailType(opp.type)}</div>
         <div class="confidence-badge">${Math.round(opp.confidence * 100)}%</div>
       </div>
       <div class="opportunity-frame">📐 ${opp.frameName}</div>
-      ${opp.aiAnalysis ? `
+      ${opp.visualAnalysis ? `
+        <img class="frame-thumbnail" src="${opp.visualAnalysis.imageData}" alt="${opp.frameName}" />
+        <div class="visual-analysis">
+          <div class="visual-analysis-label">🖼️ Visual Analysis</div>
+          <div class="visual-analysis-summary">${opp.visualAnalysis.designSummary}</div>
+          <div class="ai-analysis-reasoning">Flow: ${opp.visualAnalysis.userFlowPurpose}</div>
+        </div>
+      ` : opp.aiAnalysis ? `
         <div class="ai-analysis">
           <div class="ai-analysis-label">🤖 AI Analysis</div>
           <div class="ai-analysis-purpose">${opp.aiAnalysis.detectedPurpose}</div>
@@ -77,7 +95,7 @@ function renderOpportunities() {
           ${opp.context.userAction ? `Action: ${opp.context.userAction}` : ''}
         </div>
       `}
-      ${opp.frameContent ? `
+      ${opp.frameContent && !opp.visualAnalysis ? `
         <div class="frame-content-preview">
           <div class="frame-content-title">📄 Detected Text:</div>
           <div class="frame-content-text">${opp.frameContent.textContent.slice(0, 5).join(' | ') || 'No text found'}${opp.frameContent.textContent.length > 5 ? ' ...' : ''}</div>
@@ -415,16 +433,22 @@ async function mockAIAnalysis() {
   await new Promise(resolve => setTimeout(resolve, 1500));
 
   // Generate mock AI analysis based on frame names
+  const frameAnalyses = [];
   aiAnalysis.clear();
   for (const opp of opportunities) {
     const analysis = generateMockAnalysis(opp);
     aiAnalysis.set(opp.frameId, analysis);
-    opp.aiAnalysis = analysis;
-    opp.type = analysis.suggestedEmailType;
-    opp.confidence = analysis.confidence;
+    frameAnalyses.push({
+      ...analysis,
+      frameName: opp.frameName,
+      frameId: opp.frameId,
+      textContent: opp.frameContent?.textContent || []
+    });
   }
 
-  renderOpportunities();
+  // Generate combined text analysis summary
+  flowSummary = generateCombinedTextAnalysis(frameAnalyses);
+  renderTextAnalysisSummary();
 }
 
 function generateMockAnalysis(opp: any): any {
@@ -552,7 +576,435 @@ function generateMockAnalysis(opp: any): any {
   return analysis;
 }
 
+// Visual Analysis Functions
+function startVisualAnalysis() {
+  const container = document.getElementById('opportunities-list');
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-state-title">📸 Capturing frames...</div>
+        <div class="empty-state-text">Exporting screenshots for AI vision analysis</div>
+      </div>
+    `;
+  }
+
+  // Request frame exports from plugin
+  parent.postMessage({
+    pluginMessage: {
+      type: 'export-frames-visual'
+    }
+  }, '*');
+}
+
+async function processVisualAnalysis() {
+  const container = document.getElementById('opportunities-list');
+
+  if (exportedFrames.length === 0) {
+    if (container) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⚠️</div>
+          <div class="empty-state-title">No frames found</div>
+          <div class="empty-state-text">Create some frames in your design first</div>
+        </div>
+      `;
+    }
+    return;
+  }
+
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-state-title">🖼️ AI Vision analyzing ${exportedFrames.length} frames...</div>
+        <div class="empty-state-text">Understanding your designs visually</div>
+      </div>
+    `;
+  }
+
+  const apiUrlInput = document.getElementById('api-url') as HTMLInputElement;
+  const apiBaseUrl = apiUrlInput?.value?.trim();
+
+  if (!apiBaseUrl) {
+    // Use mock visual analysis
+    console.log('No API URL, using mock visual analysis');
+    await mockVisualAnalysis();
+    return;
+  }
+
+  try {
+    const apiUrl = apiBaseUrl.replace(/\/api\/?$/, '') + '/api/vision';
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frames: exportedFrames })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('Vision analysis response:', data);
+
+    // Generate combined flow summary from API response
+    if (data.analyses && Array.isArray(data.analyses)) {
+      // Add image data to analyses
+      const analysesWithImages = data.analyses.map((analysis: any) => {
+        const frame = exportedFrames.find(f => f.frameId === analysis.frameId);
+        return { ...analysis, imageData: frame?.imageData };
+      });
+
+      flowSummary = generateCombinedFlowSummary(analysesWithImages);
+      renderFlowSummary();
+    }
+
+  } catch (error) {
+    console.error('Vision analysis error:', error);
+    // Fall back to mock
+    await mockVisualAnalysis();
+  }
+}
+
+async function mockVisualAnalysis() {
+  // Simulate processing time
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // Analyze each frame
+  const frameAnalyses = exportedFrames.map(frame => generateMockVisualAnalysis(frame));
+
+  // Generate combined flow summary
+  flowSummary = generateCombinedFlowSummary(frameAnalyses);
+
+  // Render the combined summary
+  renderFlowSummary();
+}
+
+function generateMockVisualAnalysis(frame: any): any {
+  const name = frame.frameName.toLowerCase();
+
+  // Base analysis
+  let analysis = {
+    frameId: frame.frameId,
+    frameName: frame.frameName,
+    imageData: frame.imageData,
+    designSummary: `This screen appears to be a ${frame.frameName} interface with various UI elements.`,
+    userFlowPurpose: 'General application screen',
+    keyElements: ['Header', 'Content area', 'Buttons'],
+    suggestedEmailType: 'generic_transactional',
+    suggestedEmailName: 'Transactional Email',
+    emailContext: 'Standard notification about user action',
+    confidence: 0.6
+  };
+
+  // Smart detection based on frame name
+  if (name.match(/login|sign.?in/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A login screen with email/password fields and sign-in button. Users authenticate their credentials here.',
+      userFlowPurpose: 'User authentication - Login step',
+      keyElements: ['Email input', 'Password input', 'Sign in button', 'Forgot password link'],
+      suggestedEmailType: 'welcome_email',
+      suggestedEmailName: 'Login Notification',
+      emailContext: 'Notify user of successful login or new device login',
+      confidence: 0.88
+    };
+  } else if (name.match(/sign.?up|register|create.?account/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A registration form for new users to create an account. Contains input fields for user information.',
+      userFlowPurpose: 'User registration - Account creation',
+      keyElements: ['Name input', 'Email input', 'Password input', 'Sign up button'],
+      suggestedEmailType: 'welcome_email',
+      suggestedEmailName: 'Welcome Email',
+      emailContext: 'Welcome new user, confirm email, provide getting started tips',
+      confidence: 0.92
+    };
+  } else if (name.match(/checkout|payment|order/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A checkout/payment screen where users complete their purchase. Shows order summary and payment options.',
+      userFlowPurpose: 'E-commerce checkout - Payment step',
+      keyElements: ['Order summary', 'Payment form', 'Total amount', 'Place order button'],
+      suggestedEmailType: 'order_confirmation',
+      suggestedEmailName: 'Order Confirmation',
+      emailContext: 'Confirm order details, items, total, shipping address, estimated delivery',
+      confidence: 0.95
+    };
+  } else if (name.match(/cart|basket/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A shopping cart screen displaying items the user intends to purchase with quantity and price.',
+      userFlowPurpose: 'E-commerce - Shopping cart review',
+      keyElements: ['Cart items', 'Quantity selectors', 'Price totals', 'Checkout button'],
+      suggestedEmailType: 'abandoned_cart',
+      suggestedEmailName: 'Abandoned Cart Reminder',
+      emailContext: 'Remind user of items left in cart, offer incentive to complete purchase',
+      confidence: 0.85
+    };
+  } else if (name.match(/profile|account|settings/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A user profile or settings screen where users can view and edit their account information.',
+      userFlowPurpose: 'Account management - Profile settings',
+      keyElements: ['Profile info', 'Edit buttons', 'Settings options', 'Save button'],
+      suggestedEmailType: 'generic_transactional',
+      suggestedEmailName: 'Account Update Confirmation',
+      emailContext: 'Confirm profile changes, security notification for sensitive changes',
+      confidence: 0.75
+    };
+  } else if (name.match(/dashboard|home|overview/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A dashboard or home screen showing key metrics, navigation, and summary information.',
+      userFlowPurpose: 'Main dashboard - Overview',
+      keyElements: ['Navigation', 'Metrics cards', 'Recent activity', 'Quick actions'],
+      suggestedEmailType: 'generic_transactional',
+      suggestedEmailName: 'Activity Summary',
+      emailContext: 'Weekly/monthly summary of user activity and important updates',
+      confidence: 0.7
+    };
+  } else if (name.match(/confirm|success|thank/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A confirmation or success screen indicating a completed action with next steps.',
+      userFlowPurpose: 'Action completion - Success confirmation',
+      keyElements: ['Success icon', 'Confirmation message', 'Next steps', 'CTA buttons'],
+      suggestedEmailType: 'order_confirmation',
+      suggestedEmailName: 'Confirmation Email',
+      emailContext: 'Confirm the action was successful, provide reference number, next steps',
+      confidence: 0.88
+    };
+  } else if (name.match(/booking|appointment|schedule/i)) {
+    analysis = {
+      ...analysis,
+      designSummary: 'A booking or scheduling interface for appointments, meetings, or reservations.',
+      userFlowPurpose: 'Booking flow - Schedule selection',
+      keyElements: ['Calendar', 'Time slots', 'Service selection', 'Book button'],
+      suggestedEmailType: 'appointment_confirmation',
+      suggestedEmailName: 'Booking Confirmation',
+      emailContext: 'Confirm appointment details, date, time, location, cancellation policy',
+      confidence: 0.9
+    };
+  }
+
+  return analysis;
+}
+
+function generateCombinedFlowSummary(frameAnalyses: any[]): any {
+  // Determine the product type based on detected screens
+  const purposes = frameAnalyses.map(f => f.userFlowPurpose.toLowerCase());
+  const emailTypes = frameAnalyses.map(f => f.suggestedEmailType);
+
+  let productType = 'Application';
+  let productDescription = '';
+
+  // Detect e-commerce
+  if (purposes.some(p => p.includes('checkout') || p.includes('cart') || p.includes('order') || p.includes('e-commerce'))) {
+    productType = 'E-commerce Platform';
+    productDescription = 'This appears to be an e-commerce or shopping application with a complete purchase flow.';
+  }
+  // Detect SaaS/Dashboard
+  else if (purposes.some(p => p.includes('dashboard') || p.includes('overview') || p.includes('analytics'))) {
+    productType = 'SaaS Dashboard';
+    productDescription = 'This appears to be a SaaS product or dashboard application for managing data and workflows.';
+  }
+  // Detect Booking/Scheduling
+  else if (purposes.some(p => p.includes('booking') || p.includes('appointment') || p.includes('schedule'))) {
+    productType = 'Booking Platform';
+    productDescription = 'This appears to be a booking or scheduling application for appointments and reservations.';
+  }
+  // Detect Auth flow
+  else if (purposes.some(p => p.includes('login') || p.includes('registration') || p.includes('auth'))) {
+    productType = 'Web/Mobile Application';
+    productDescription = 'This appears to be an application with user authentication and account management features.';
+  }
+  // Generic
+  else {
+    productDescription = 'This design contains multiple screens that form a user journey through the application.';
+  }
+
+  // Build flow narrative
+  const flowSteps = frameAnalyses.map((analysis, index) => ({
+    step: index + 1,
+    frameName: analysis.frameName,
+    purpose: analysis.userFlowPurpose,
+    thumbnail: analysis.imageData,
+    keyElements: analysis.keyElements
+  }));
+
+  // Get unique suggested emails
+  const uniqueEmails = [...new Set(emailTypes)].map(type => {
+    const analysis = frameAnalyses.find(f => f.suggestedEmailType === type);
+    return {
+      type,
+      name: analysis?.suggestedEmailName || type,
+      context: analysis?.emailContext || ''
+    };
+  });
+
+  // Generate overall summary
+  const screenCount = frameAnalyses.length;
+  const summary = `This ${productType.toLowerCase()} design contains ${screenCount} screen${screenCount > 1 ? 's' : ''} that guide users through a complete flow. ${productDescription}`;
+
+  return {
+    productType,
+    summary,
+    screenCount,
+    flowSteps,
+    suggestedEmails: uniqueEmails,
+    overallConfidence: frameAnalyses.reduce((acc, f) => acc + f.confidence, 0) / frameAnalyses.length
+  };
+}
+
+function renderFlowSummary() {
+  const container = document.getElementById('opportunities-list');
+  if (!container || !flowSummary) return;
+
+  const screensHtml = flowSummary.flowSteps.map((step: any) => `
+    <div class="flow-screen-item">
+      <img class="flow-screen-thumbnail" src="${step.thumbnail}" alt="${step.frameName}" />
+      <div class="flow-screen-info">
+        <div class="flow-screen-name">${step.step}. ${step.frameName}</div>
+        <div class="flow-screen-purpose">${step.purpose}</div>
+      </div>
+    </div>
+  `).join('');
+
+  const emailsHtml = flowSummary.suggestedEmails.map((email: any) => `
+    <span class="suggested-email-chip">${email.name}</span>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="flow-summary-card">
+      <div class="flow-summary-header">
+        🖼️ Visual Flow Analysis
+      </div>
+      <div class="flow-summary-title">${flowSummary.productType}</div>
+      <div class="flow-summary-description">${flowSummary.summary}</div>
+
+      <div class="flow-screens-list">
+        ${screensHtml}
+      </div>
+
+      <div class="flow-emails-section">
+        <div class="flow-emails-title">Suggested Transactional Emails:</div>
+        <div>${emailsHtml}</div>
+      </div>
+    </div>
+  `;
+}
+
+function generateCombinedTextAnalysis(frameAnalyses: any[]): any {
+  // Collect all detected purposes and email types
+  const purposes = frameAnalyses.map(f => f.detectedPurpose?.toLowerCase() || '');
+  const emailTypes = frameAnalyses.map(f => f.suggestedEmailType);
+  const allText = frameAnalyses.flatMap(f => f.textContent || []);
+
+  let productType = 'Application';
+  let productDescription = '';
+
+  // Detect product type from text content and purposes
+  const combinedText = allText.join(' ').toLowerCase();
+
+  if (combinedText.match(/cart|checkout|order|buy|purchase|price|shipping/i) ||
+      purposes.some(p => p.includes('e-commerce') || p.includes('checkout') || p.includes('order'))) {
+    productType = 'E-commerce Platform';
+    productDescription = 'Based on text analysis, this appears to be an e-commerce application with shopping and checkout functionality.';
+  } else if (combinedText.match(/dashboard|analytics|metrics|report|overview/i) ||
+             purposes.some(p => p.includes('dashboard') || p.includes('analytics'))) {
+    productType = 'SaaS Dashboard';
+    productDescription = 'Based on text analysis, this appears to be a SaaS or analytics dashboard for data management.';
+  } else if (combinedText.match(/book|appointment|schedule|calendar|reserve/i) ||
+             purposes.some(p => p.includes('booking') || p.includes('appointment'))) {
+    productType = 'Booking Platform';
+    productDescription = 'Based on text analysis, this appears to be a booking or scheduling platform.';
+  } else if (combinedText.match(/login|sign up|register|password|email|account/i) ||
+             purposes.some(p => p.includes('registration') || p.includes('authentication'))) {
+    productType = 'Web/Mobile Application';
+    productDescription = 'Based on text analysis, this appears to be an application with user authentication features.';
+  } else {
+    productDescription = 'This design contains multiple screens forming a user journey through the application.';
+  }
+
+  // Build flow steps
+  const flowSteps = frameAnalyses.map((analysis, index) => ({
+    step: index + 1,
+    frameName: analysis.frameName,
+    purpose: analysis.detectedPurpose || 'General screen',
+    reasoning: analysis.reasoning || '',
+    textPreview: (analysis.textContent || []).slice(0, 3).join(', ')
+  }));
+
+  // Get unique suggested emails
+  const uniqueEmails = [...new Set(emailTypes)].map(type => {
+    const analysis = frameAnalyses.find(f => f.suggestedEmailType === type);
+    return {
+      type,
+      name: analysis?.suggestedEmailName || _formatEmailType(type as string)
+    };
+  });
+
+  const screenCount = frameAnalyses.length;
+  const summary = `Analyzed ${screenCount} screen${screenCount > 1 ? 's' : ''} based on frame names and text content. ${productDescription}`;
+
+  return {
+    productType,
+    summary,
+    screenCount,
+    flowSteps,
+    suggestedEmails: uniqueEmails,
+    analysisType: 'text'
+  };
+}
+
+function renderTextAnalysisSummary() {
+  const container = document.getElementById('opportunities-list');
+  if (!container || !flowSummary) return;
+
+  const screensHtml = flowSummary.flowSteps.map((step: any) => `
+    <div class="flow-screen-item">
+      <div class="flow-screen-number">${step.step}</div>
+      <div class="flow-screen-info">
+        <div class="flow-screen-name">${step.frameName}</div>
+        <div class="flow-screen-purpose">${step.purpose}</div>
+        ${step.textPreview ? `<div class="flow-screen-text">📄 "${step.textPreview}${step.textPreview.length > 50 ? '...' : ''}"</div>` : ''}
+      </div>
+    </div>
+  `).join('');
+
+  const emailsHtml = flowSummary.suggestedEmails.map((email: any) => `
+    <span class="suggested-email-chip">${email.name}</span>
+  `).join('');
+
+  container.innerHTML = `
+    <div class="flow-summary-card" style="background: linear-gradient(135deg, #7C3AED15 0%, #3B82F615 100%); border-color: #7C3AED40;">
+      <div class="flow-summary-header" style="color: #7C3AED;">
+        🤖 Text-Based Flow Analysis
+      </div>
+      <div class="flow-summary-title">${flowSummary.productType}</div>
+      <div class="flow-summary-description">${flowSummary.summary}</div>
+
+      <div class="flow-screens-list">
+        ${screensHtml}
+      </div>
+
+      <div class="flow-emails-section">
+        <div class="flow-emails-title">Suggested Transactional Emails:</div>
+        <div>${emailsHtml}</div>
+      </div>
+    </div>
+  `;
+}
+
 function refreshOpportunities() {
+  // Clear visual analysis when refreshing
+  visualAnalysis.clear();
+  exportedFrames = [];
+  flowSummary = null;
+
   // Request new scan from plugin code
   parent.postMessage({
     pluginMessage: {

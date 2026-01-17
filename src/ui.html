@@ -146,6 +146,161 @@
       font-style: italic;
     }
 
+    .visual-analysis {
+      background: linear-gradient(135deg, #EC489920 0%, #8B5CF620 100%);
+      border: 1px solid #EC489940;
+      border-radius: 4px;
+      padding: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .visual-analysis-label {
+      font-weight: 600;
+      color: #EC4899;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .visual-analysis-summary {
+      color: var(--figma-color-text);
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .frame-thumbnail {
+      width: 100%;
+      max-height: 120px;
+      object-fit: contain;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      background: var(--figma-color-bg);
+    }
+
+    .flow-summary-card {
+      background: linear-gradient(135deg, #EC489915 0%, #8B5CF615 100%);
+      border: 1px solid #EC489940;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .flow-summary-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      color: #EC4899;
+    }
+
+    .flow-summary-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--figma-color-text);
+    }
+
+    .flow-summary-description {
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--figma-color-text);
+      margin-bottom: 12px;
+    }
+
+    .flow-screens-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .flow-screen-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 8px;
+      background: var(--figma-color-bg);
+      border-radius: 6px;
+    }
+
+    .flow-screen-thumbnail {
+      width: 60px;
+      height: 45px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    .flow-screen-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .flow-screen-name {
+      font-weight: 600;
+      font-size: 12px;
+      margin-bottom: 2px;
+      color: var(--figma-color-text);
+    }
+
+    .flow-screen-purpose {
+      font-size: 11px;
+      color: var(--figma-color-text-secondary);
+    }
+
+    .flow-screen-number {
+      width: 24px;
+      height: 24px;
+      background: #7C3AED;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .flow-screen-text {
+      font-size: 10px;
+      color: var(--figma-color-text-tertiary);
+      font-style: italic;
+      margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .flow-emails-section {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--figma-color-border);
+    }
+
+    .flow-emails-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--figma-color-text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .suggested-email-chip {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #7C3AED20;
+      border: 1px solid #7C3AED40;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #7C3AED;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+
     .button-row {
       display: flex;
       gap: 8px;
@@ -186,6 +341,14 @@
 
     .btn-primary:hover {
       background: #6D28D9;
+    }
+
+    .btn-vision {
+      background: linear-gradient(135deg, #EC4899 0%, #8B5CF6 100%);
+    }
+
+    .btn-vision:hover {
+      background: linear-gradient(135deg, #DB2777 0%, #7C3AED 100%);
     }
 
     .btn:hover {
@@ -356,13 +519,19 @@
         🔄 Refresh
       </button>
       <button id="ai-analyze-btn" class="btn btn-primary">
-        🤖 Analyze with AI
+        🤖 Text Analysis
+      </button>
+    </div>
+
+    <div class="button-row">
+      <button id="visual-analyze-btn" class="btn btn-vision">
+        🖼️ Visual Analysis (AI Vision)
       </button>
     </div>
 
     <div id="api-config" class="api-config">
       <label class="form-label">API Endpoint (optional)</label>
-      <input type="text" id="api-url" class="form-input" placeholder="https://your-api.vercel.app/api/analyze">
+      <input type="text" id="api-url" class="form-input" placeholder="https://your-api.vercel.app/api">
     </div>
   </div>
 
