@@ -1,0 +1,23 @@
+{
+  "name": "figma-email-plugin",
+  "version": "1.0.0",
+  "description": "AI-powered email design suggestions for Figma",
+  "scripts": {
+    "build": "tsc && webpack --mode=production",
+    "dev": "concurrently \"tsc --watch\" \"webpack --mode=development --watch\"",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.90.0",
+    "@types/node": "^20.11.5",
+    "concurrently": "^8.2.2",
+    "html-webpack-plugin": "^5.6.0",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4"
+  }
+}
