@@ -46,11 +46,11 @@ function detectEmailOpportunities(scanAll: boolean = false): EmailOpportunity[] 
   const opportunities: EmailOpportunity[] = [];
   const currentPage = figma.currentPage;
 
-  // Scan all nodes in the current page
-  const allNodes = currentPage.findAll();
-
-  for (const node of allNodes) {
-    // Only look at frames and components (skip nested frames for cleaner results)
+  // Only scan top-level frames (direct children of the page)
+  // This avoids redundancy from nested child frames
+  // Child frame text is automatically extracted via extractFrameContent which recurses into children
+  for (const node of currentPage.children) {
+    // Only look at frames and components
     if (node.type !== 'FRAME' && node.type !== 'COMPONENT') continue;
 
     // Skip very small frames (likely UI elements, not screens)
@@ -61,7 +61,8 @@ function detectEmailOpportunities(scanAll: boolean = false): EmailOpportunity[] 
     const name = node.name.toLowerCase();
 
     if (scanAll) {
-      // In "scan all" mode, include every frame
+      // In "scan all" mode, include every top-level frame
+      // extractFrameContent will recursively get all text from child frames
       const frameContent = extractFrameContent(node);
       opportunities.push({
         id: `opp_${node.id}`,
