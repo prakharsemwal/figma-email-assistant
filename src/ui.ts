@@ -3,6 +3,7 @@
 let opportunities: any[] = [];
 let brandColors: any = {};
 let currentOpportunity: any = null;
+let aiAnalysis: Map<string, any> = new Map(); // Store AI analysis by frame ID
 
 // Listen for messages from plugin code
 window.onmessage = async (event: MessageEvent) => {
@@ -28,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Attach event listeners to buttons
   document.getElementById('refresh-btn')?.addEventListener('click', refreshOpportunities);
+  document.getElementById('ai-analyze-btn')?.addEventListener('click', analyzeWithAI);
   document.getElementById('close-btn')?.addEventListener('click', closeGenerator);
   document.getElementById('regenerate-btn')?.addEventListener('click', regenerateCopy);
   document.getElementById('insert-btn')?.addEventListener('click', insertIntoFigma);
@@ -60,13 +62,27 @@ function renderOpportunities() {
   container.innerHTML = opportunities.map(opp => `
     <div class="opportunity-card" onclick="generateEmail('${opp.id}')">
       <div class="opportunity-header">
-        <div class="opportunity-type">${_formatEmailType(opp.type)}</div>
+        <div class="opportunity-type">${opp.aiAnalysis?.suggestedEmailName || _formatEmailType(opp.type)}</div>
         <div class="confidence-badge">${Math.round(opp.confidence * 100)}%</div>
       </div>
       <div class="opportunity-frame">📐 ${opp.frameName}</div>
-      <div class="opportunity-context">
-        ${opp.context.userAction ? `Action: ${opp.context.userAction}` : ''}
-      </div>
+      ${opp.aiAnalysis ? `
+        <div class="ai-analysis">
+          <div class="ai-analysis-label">🤖 AI Analysis</div>
+          <div class="ai-analysis-purpose">${opp.aiAnalysis.detectedPurpose}</div>
+          <div class="ai-analysis-reasoning">${opp.aiAnalysis.reasoning}</div>
+        </div>
+      ` : `
+        <div class="opportunity-context">
+          ${opp.context.userAction ? `Action: ${opp.context.userAction}` : ''}
+        </div>
+      `}
+      ${opp.frameContent ? `
+        <div class="frame-content-preview">
+          <div class="frame-content-title">📄 Detected Text:</div>
+          <div class="frame-content-text">${opp.frameContent.textContent.slice(0, 5).join(' | ') || 'No text found'}${opp.frameContent.textContent.length > 5 ? ' ...' : ''}</div>
+        </div>
+      ` : ''}
       <button class="btn" onclick="event.stopPropagation(); generateEmail('${opp.id}')">
         Generate Email
       </button>
@@ -277,6 +293,263 @@ function insertIntoFigma() {
   
   // Close modal
   closeGenerator();
+}
+
+async function analyzeWithAI() {
+  // First, request a scan of ALL frames
+  const container = document.getElementById('opportunities-list');
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-state-title">Scanning all frames...</div>
+      </div>
+    `;
+  }
+
+  // Request scan with scanAll flag
+  parent.postMessage({
+    pluginMessage: {
+      type: 'detect-opportunities',
+      scanAll: true
+    }
+  }, '*');
+
+  // Wait for opportunities to be populated
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  const apiUrlInput = document.getElementById('api-url') as HTMLInputElement;
+  const apiUrl = apiUrlInput?.value?.trim();
+
+  if (!apiUrl) {
+    // Show inline mock AI analysis for demo
+    console.log('No API URL provided, using mock AI analysis');
+    await mockAIAnalysis();
+    return;
+  }
+
+  // Show loading state
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-state-title">🤖 AI is analyzing your frames...</div>
+        <div class="empty-state-text">This may take a few seconds</div>
+      </div>
+    `;
+  }
+
+  try {
+    // Prepare frame data for AI
+    const framesData = opportunities.map(opp => ({
+      name: opp.frameName,
+      id: opp.frameId,
+      textContent: opp.frameContent?.textContent || [],
+      childNodes: opp.frameContent?.childNodes || [],
+      dimensions: opp.frameContent?.dimensions || { width: 0, height: 0 }
+    }));
+
+    console.log('Sending frames to AI:', framesData);
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ frames: framesData })
+    });
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('AI analysis response:', data);
+
+    // Store AI analysis results
+    if (data.analysis && Array.isArray(data.analysis)) {
+      aiAnalysis.clear();
+      for (const item of data.analysis) {
+        aiAnalysis.set(item.frameId, item);
+
+        // Update the opportunity with AI analysis
+        const opp = opportunities.find(o => o.frameId === item.frameId);
+        if (opp) {
+          opp.aiAnalysis = item;
+          opp.type = item.suggestedEmailType;
+          opp.confidence = item.confidence;
+        }
+      }
+    }
+
+    // Re-render with AI analysis
+    renderOpportunities();
+
+  } catch (error) {
+    console.error('AI analysis error:', error);
+
+    if (container) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⚠️</div>
+          <div class="empty-state-title">AI Analysis Failed</div>
+          <div class="empty-state-text">${(error as Error).message}</div>
+        </div>
+      `;
+    }
+  }
+}
+
+async function mockAIAnalysis() {
+  // Show loading state
+  const container = document.getElementById('opportunities-list');
+  if (container) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="spinner"></div>
+        <div class="empty-state-title">🤖 AI is analyzing your frames...</div>
+        <div class="empty-state-text">Demo mode - using mock analysis</div>
+      </div>
+    `;
+  }
+
+  // Simulate API delay
+  await new Promise(resolve => setTimeout(resolve, 1500));
+
+  // Generate mock AI analysis based on frame names
+  aiAnalysis.clear();
+  for (const opp of opportunities) {
+    const analysis = generateMockAnalysis(opp);
+    aiAnalysis.set(opp.frameId, analysis);
+    opp.aiAnalysis = analysis;
+    opp.type = analysis.suggestedEmailType;
+    opp.confidence = analysis.confidence;
+  }
+
+  renderOpportunities();
+}
+
+function generateMockAnalysis(opp: any): any {
+  const name = opp.frameName.toLowerCase();
+  const textContent = opp.frameContent?.textContent || [];
+  const allText = textContent.join(' ').toLowerCase();
+
+  // AI-like analysis based on content
+  let analysis = {
+    frameId: opp.frameId,
+    frameName: opp.frameName,
+    detectedPurpose: 'General product screen',
+    suggestedEmailType: 'generic_transactional',
+    suggestedEmailName: 'Transactional Email',
+    confidence: 0.6,
+    reasoning: 'Analyzed frame name and content patterns',
+    suggestedVariables: ['user_name']
+  };
+
+  // Signup/Registration patterns
+  if (name.match(/sign.?up|register|create.?account|join|onboard/i) ||
+      allText.match(/sign.?up|register|create.?account|join|password|email/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'User registration/signup flow',
+      suggestedEmailType: 'welcome_email',
+      suggestedEmailName: 'Welcome Email',
+      confidence: 0.92,
+      reasoning: 'Detected signup-related keywords in frame name and content',
+      suggestedVariables: ['user_name', 'email', 'verification_link']
+    };
+  }
+  // Order/Checkout patterns
+  else if (name.match(/order|checkout|cart|purchase|buy|payment/i) ||
+           allText.match(/order|total|price|quantity|checkout|payment|card/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'E-commerce checkout/order flow',
+      suggestedEmailType: 'order_confirmation',
+      suggestedEmailName: 'Order Confirmation',
+      confidence: 0.95,
+      reasoning: 'Detected e-commerce and order-related patterns',
+      suggestedVariables: ['customer_name', 'order_number', 'order_total', 'items', 'shipping_address']
+    };
+  }
+  // Password reset patterns
+  else if (name.match(/password|reset|forgot|recover/i) ||
+           allText.match(/password|reset|forgot|recover|email/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Password reset/recovery flow',
+      suggestedEmailType: 'password_reset',
+      suggestedEmailName: 'Password Reset',
+      confidence: 0.9,
+      reasoning: 'Detected password recovery patterns',
+      suggestedVariables: ['user_name', 'reset_link', 'expiry_time']
+    };
+  }
+  // Booking/Appointment patterns
+  else if (name.match(/book|appointment|schedule|reservation|calendar/i) ||
+           allText.match(/book|appointment|schedule|date|time|confirm/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Booking/appointment scheduling flow',
+      suggestedEmailType: 'appointment_confirmation',
+      suggestedEmailName: 'Appointment Confirmation',
+      confidence: 0.88,
+      reasoning: 'Detected booking and scheduling patterns',
+      suggestedVariables: ['user_name', 'appointment_date', 'appointment_time', 'location']
+    };
+  }
+  // Invoice/Billing patterns
+  else if (name.match(/invoice|bill|receipt|payment/i) ||
+           allText.match(/invoice|bill|amount|due|payment/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Invoice/billing screen',
+      suggestedEmailType: 'invoice',
+      suggestedEmailName: 'Invoice Email',
+      confidence: 0.85,
+      reasoning: 'Detected billing and invoice patterns',
+      suggestedVariables: ['customer_name', 'invoice_number', 'amount', 'due_date']
+    };
+  }
+  // Subscription patterns
+  else if (name.match(/subscri|plan|pricing|upgrade|premium/i) ||
+           allText.match(/subscri|plan|monthly|yearly|upgrade/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Subscription/pricing flow',
+      suggestedEmailType: 'subscription_renewal',
+      suggestedEmailName: 'Subscription Email',
+      confidence: 0.82,
+      reasoning: 'Detected subscription and pricing patterns',
+      suggestedVariables: ['user_name', 'plan_name', 'renewal_date', 'amount']
+    };
+  }
+  // Feedback/Review patterns
+  else if (name.match(/feedback|review|rating|survey/i) ||
+           allText.match(/feedback|review|rate|how.?was|experience/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Feedback/review collection screen',
+      suggestedEmailType: 'feedback_request',
+      suggestedEmailName: 'Feedback Request',
+      confidence: 0.8,
+      reasoning: 'Detected feedback and review patterns',
+      suggestedVariables: ['user_name', 'product_name', 'feedback_link']
+    };
+  }
+  // Email verification patterns
+  else if (name.match(/verify|confirm.?email|validate/i) ||
+           allText.match(/verify|confirm|code|otp/i)) {
+    analysis = {
+      ...analysis,
+      detectedPurpose: 'Email verification flow',
+      suggestedEmailType: 'email_verification',
+      suggestedEmailName: 'Email Verification',
+      confidence: 0.88,
+      reasoning: 'Detected verification patterns',
+      suggestedVariables: ['user_name', 'verification_link', 'verification_code']
+    };
+  }
+
+  return analysis;
 }
 
 function refreshOpportunities() {

@@ -20,6 +20,14 @@ interface EmailOpportunity {
     userAction?: string;
     detectedVariables?: string[];
   };
+  frameContent?: FrameContent; // Add extracted content
+}
+
+// Content extracted from a frame
+interface FrameContent {
+  textContent: string[];
+  childNodes: { name: string; type: string }[];
+  dimensions: { width: number; height: number };
 }
 
 type EmailType = 
@@ -34,7 +42,7 @@ type EmailType =
   | 'generic_transactional';
 
 // Pattern detection functions
-function detectEmailOpportunities(): EmailOpportunity[] {
+function detectEmailOpportunities(scanAll: boolean = false): EmailOpportunity[] {
   const opportunities: EmailOpportunity[] = [];
   const currentPage = figma.currentPage;
 
@@ -42,14 +50,37 @@ function detectEmailOpportunities(): EmailOpportunity[] {
   const allNodes = currentPage.findAll();
 
   for (const node of allNodes) {
-    // Only look at frames and components
+    // Only look at frames and components (skip nested frames for cleaner results)
     if (node.type !== 'FRAME' && node.type !== 'COMPONENT') continue;
 
+    // Skip very small frames (likely UI elements, not screens)
+    if ('width' in node && 'height' in node) {
+      if ((node as FrameNode).width < 200 || (node as FrameNode).height < 200) continue;
+    }
+
     const name = node.name.toLowerCase();
-    const opportunity = analyzeNode(node, name);
-    
-    if (opportunity) {
-      opportunities.push(opportunity);
+
+    if (scanAll) {
+      // In "scan all" mode, include every frame
+      const frameContent = extractFrameContent(node);
+      opportunities.push({
+        id: `opp_${node.id}`,
+        type: 'generic_transactional',
+        frameName: node.name,
+        frameId: node.id,
+        confidence: 0.5, // Low confidence until AI analyzes
+        context: {
+          userAction: 'unknown',
+          detectedVariables: []
+        },
+        frameContent
+      });
+    } else {
+      // Original pattern-based detection
+      const opportunity = analyzeNode(node, name);
+      if (opportunity) {
+        opportunities.push(opportunity);
+      }
     }
   }
 
@@ -58,6 +89,9 @@ function detectEmailOpportunities(): EmailOpportunity[] {
 
 function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
   const id = node.id;
+
+  // Always extract frame content for AI analysis
+  const frameContent = extractFrameContent(node);
 
   // Welcome/Signup patterns
   if (isSignupFlow(name)) {
@@ -70,7 +104,8 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
       context: {
         userAction: 'signed_up',
         detectedVariables: ['user_name', 'email', 'verify_link']
-      }
+      },
+      frameContent
     };
   }
 
@@ -86,7 +121,8 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
         productType: 'e-commerce',
         userAction: 'placed_order',
         detectedVariables: ['order_number', 'customer_name', 'total', 'items', 'shipping_address']
-      }
+      },
+      frameContent
     };
   }
 
@@ -101,7 +137,8 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
       context: {
         userAction: 'requested_password_reset',
         detectedVariables: ['user_name', 'reset_link', 'expiry_time']
-      }
+      },
+      frameContent
     };
   }
 
@@ -116,7 +153,8 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
       context: {
         userAction: 'needs_email_verification',
         detectedVariables: ['user_name', 'verification_link', 'verification_code']
-      }
+      },
+      frameContent
     };
   }
 
@@ -125,7 +163,7 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
     const buttons = findButtonsInFrame(node as FrameNode);
     for (const button of buttons) {
       const buttonText = button.toLowerCase();
-      
+
       if (buttonText.includes('submit') || buttonText.includes('confirm') || buttonText.includes('send')) {
         return {
           id: `opp_${id}`,
@@ -136,7 +174,8 @@ function analyzeNode(node: SceneNode, name: string): EmailOpportunity | null {
           context: {
             userAction: 'submitted_form',
             detectedVariables: []
-          }
+          },
+          frameContent
         };
       }
     }
@@ -174,6 +213,44 @@ function isEmailVerificationFlow(name: string): boolean {
     'verify email', 'email verification', 'confirm email', 'verify account'
   ];
   return patterns.some(p => name.includes(p));
+}
+
+// Extract all content from a frame
+function extractFrameContent(node: SceneNode): FrameContent {
+  const textContent: string[] = [];
+  const childNodes: { name: string; type: string }[] = [];
+
+  const extractContent = (n: SceneNode, depth: number = 0) => {
+    // Log node info
+    childNodes.push({
+      name: '  '.repeat(depth) + n.name,
+      type: n.type
+    });
+
+    // Extract text content
+    if (n.type === 'TEXT') {
+      const text = (n as TextNode).characters;
+      if (text.trim()) {
+        textContent.push(text);
+      }
+    }
+
+    // Recurse into children
+    if ('children' in n) {
+      for (const child of (n as FrameNode).children) {
+        extractContent(child, depth + 1);
+      }
+    }
+  };
+
+  extractContent(node);
+
+  const dimensions = {
+    width: 'width' in node ? (node as FrameNode).width : 0,
+    height: 'height' in node ? (node as FrameNode).height : 0
+  };
+
+  return { textContent, childNodes, dimensions };
 }
 
 function findButtonsInFrame(frame: FrameNode): string[] {
@@ -250,6 +327,27 @@ function rgbToHex(r: number, g: number, b: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
+// Helper to load font with fallback
+async function loadFontWithFallback(style: "Regular" | "Bold"): Promise<FontName> {
+  const fontsToTry: FontName[] = [
+    { family: "Inter", style },
+    { family: "Roboto", style },
+    { family: "Arial", style: style === "Bold" ? "Bold" : "Regular" },
+  ];
+
+  for (const font of fontsToTry) {
+    try {
+      await figma.loadFontAsync(font);
+      console.log(`Loaded font: ${font.family} ${font.style}`);
+      return font;
+    } catch (e) {
+      console.log(`Font not available: ${font.family} ${font.style}`);
+    }
+  }
+
+  throw new Error("No suitable font found");
+}
+
 // Create email frame in Figma
 async function createEmailFrame(emailData: {
   type: EmailType;
@@ -257,11 +355,13 @@ async function createEmailFrame(emailData: {
   body: string;
   brandColors: any;
 }) {
+  console.log('Starting createEmailFrame...');
+
   const frame = figma.createFrame();
   frame.name = `Email - ${formatEmailType(emailData.type)}`;
   frame.resize(600, 800);
   frame.fills = [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }];
-  
+
   // Create email container
   const emailContainer = figma.createFrame();
   emailContainer.name = 'Email Content';
@@ -278,26 +378,30 @@ async function createEmailFrame(emailData: {
     visible: true,
     blendMode: 'NORMAL'
   }];
-  
+
   // Add header
   const header = await createHeader(emailData.brandColors);
   header.x = 40;
   header.y = 40;
   emailContainer.appendChild(header);
-  
+
+  // Load fonts with fallback
+  const boldFont = await loadFontWithFallback("Bold");
+  const regularFont = await loadFontWithFallback("Regular");
+
   // Add subject line (as annotation)
   const subjectText = figma.createText();
-  await figma.loadFontAsync({ family: "Inter", style: "Bold" });
+  subjectText.fontName = boldFont;
   subjectText.characters = `Subject: ${emailData.subject}`;
   subjectText.fontSize = 14;
   subjectText.fills = [{ type: 'SOLID', color: { r: 0.4, g: 0.4, b: 0.4 } }];
   subjectText.x = 40;
   subjectText.y = 120;
   emailContainer.appendChild(subjectText);
-  
+
   // Add body content
   const bodyText = figma.createText();
-  await figma.loadFontAsync({ family: "Inter", style: "Regular" });
+  bodyText.fontName = regularFont;
   bodyText.characters = emailData.body;
   bodyText.fontSize = 16;
   bodyText.lineHeight = { value: 150, unit: 'PERCENT' };
@@ -306,12 +410,13 @@ async function createEmailFrame(emailData: {
   bodyText.x = 40;
   bodyText.y = 160;
   emailContainer.appendChild(bodyText);
-  
+
   frame.appendChild(emailContainer);
-  
+
   // Center in viewport
   figma.viewport.scrollAndZoomIntoView([frame]);
-  
+
+  console.log('Email frame created successfully!');
   return frame;
 }
 
@@ -350,9 +455,12 @@ function formatEmailType(type: EmailType): string {
 // Message handling from UI
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'detect-opportunities') {
-    const opportunities = detectEmailOpportunities();
+    const scanAll = msg.scanAll || false;
+    const opportunities = detectEmailOpportunities(scanAll);
     const brandColors = getBrandColors();
-    
+
+    console.log(`Detected ${opportunities.length} opportunities (scanAll: ${scanAll})`);
+
     figma.ui.postMessage({
       type: 'opportunities-detected',
       opportunities,
@@ -361,17 +469,23 @@ figma.ui.onmessage = async (msg) => {
   }
   
   if (msg.type === 'create-email') {
+    console.log('Creating email frame with:', msg);
     const { emailType, subject, body } = msg;
     const brandColors = getBrandColors();
-    
-    await createEmailFrame({
-      type: emailType,
-      subject,
-      body,
-      brandColors
-    });
-    
-    figma.notify('✅ Email template created!');
+
+    try {
+      await createEmailFrame({
+        type: emailType,
+        subject,
+        body,
+        brandColors
+      });
+
+      figma.notify('✅ Email template created!');
+    } catch (error) {
+      console.error('Error creating email frame:', error);
+      figma.notify('❌ Error creating email: ' + (error as Error).message);
+    }
   }
   
   if (msg.type === 'close') {

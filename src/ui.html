@@ -98,6 +98,75 @@
       margin-bottom: 8px;
     }
 
+    .frame-content-preview {
+      background: var(--figma-color-bg);
+      border-radius: 4px;
+      padding: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .frame-content-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: var(--figma-color-text-secondary);
+    }
+
+    .frame-content-text {
+      color: var(--figma-color-text);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .ai-analysis {
+      background: linear-gradient(135deg, #7C3AED20 0%, #3B82F620 100%);
+      border: 1px solid #7C3AED40;
+      border-radius: 4px;
+      padding: 8px;
+      margin-bottom: 8px;
+      font-size: 11px;
+    }
+
+    .ai-analysis-label {
+      font-weight: 600;
+      color: #7C3AED;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .ai-analysis-purpose {
+      color: var(--figma-color-text);
+      margin-bottom: 4px;
+    }
+
+    .ai-analysis-reasoning {
+      color: var(--figma-color-text-secondary);
+      font-style: italic;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .button-row .btn {
+      flex: 1;
+    }
+
+    .api-config {
+      margin-top: 8px;
+      padding-top: 12px;
+      border-top: 1px solid var(--figma-color-border);
+    }
+
+    .api-config .form-input {
+      margin-top: 4px;
+      font-size: 11px;
+    }
+
     .btn {
       background: #18A0FB;
       color: white;
@@ -109,6 +178,14 @@
       cursor: pointer;
       width: 100%;
       transition: background 0.2s;
+    }
+
+    .btn-primary {
+      background: #7C3AED;
+    }
+
+    .btn-primary:hover {
+      background: #6D28D9;
     }
 
     .btn:hover {
@@ -274,9 +351,19 @@
       </div>
     </div>
 
-    <button id="refresh-btn" class="btn btn-secondary">
-      🔄 Refresh Scan
-    </button>
+    <div class="button-row">
+      <button id="refresh-btn" class="btn btn-secondary">
+        🔄 Refresh
+      </button>
+      <button id="ai-analyze-btn" class="btn btn-primary">
+        🤖 Analyze with AI
+      </button>
+    </div>
+
+    <div id="api-config" class="api-config">
+      <label class="form-label">API Endpoint (optional)</label>
+      <input type="text" id="api-url" class="form-input" placeholder="https://your-api.vercel.app/api/analyze">
+    </div>
   </div>
 
   <!-- Generator Modal -->
