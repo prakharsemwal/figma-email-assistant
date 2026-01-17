@@ -1,4 +1,5 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const HtmlInlineScriptPlugin = require('html-inline-script-webpack-plugin');
 const path = require('path');
 
 module.exports = (env, argv) => ({
@@ -34,6 +35,8 @@ module.exports = (env, argv) => ({
       template: './src/ui.html',
       filename: 'ui.html',
       chunks: ['ui'],
+      inject: 'body',
     }),
+    new HtmlInlineScriptPlugin(),
   ],
 });

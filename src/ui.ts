@@ -6,14 +6,40 @@ let currentOpportunity: any = null;
 
 // Listen for messages from plugin code
 window.onmessage = async (event: MessageEvent) => {
+  console.log('Message received:', event.data);
   const msg = event.data.pluginMessage;
-  
+
+  if (!msg) {
+    console.log('No pluginMessage in event');
+    return;
+  }
+
   if (msg.type === 'opportunities-detected') {
+    console.log('Opportunities detected:', msg.opportunities);
     opportunities = msg.opportunities;
     brandColors = msg.brandColors;
     renderOpportunities();
   }
 };
+
+// Setup when UI loads
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, setting up event listeners');
+
+  // Attach event listeners to buttons
+  document.getElementById('refresh-btn')?.addEventListener('click', refreshOpportunities);
+  document.getElementById('close-btn')?.addEventListener('click', closeGenerator);
+  document.getElementById('regenerate-btn')?.addEventListener('click', regenerateCopy);
+  document.getElementById('insert-btn')?.addEventListener('click', insertIntoFigma);
+
+  // Request initial scan
+  console.log('Requesting initial scan');
+  parent.postMessage({
+    pluginMessage: {
+      type: 'detect-opportunities'
+    }
+  }, '*');
+});
 
 function renderOpportunities() {
   const container = document.getElementById('opportunities-list');
@@ -272,6 +298,9 @@ function refreshOpportunities() {
     `;
   }
 }
+
+// Expose generateEmail to window for dynamically generated HTML onclick handlers
+(window as any).generateEmail = generateEmail;
 
 // Initial load
 console.log('Email Design Assistant UI loaded');
